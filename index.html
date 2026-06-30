@@ -17,14 +17,14 @@
   --radius:6px;
 }
 body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:14px;min-height:100vh;display:flex;flex-direction:column}
-.sync-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text3);flex-shrink:0}
-.sync-dot{width:8px;height:8px;border-radius:50%;background:var(--text3);transition:background .3s}
+.sync-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text3);flex-shrink:0;position:sticky;top:0;z-index:50}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:var(--text3);transition:background .3s;flex-shrink:0}
 .sync-dot.ok{background:var(--green)}
 .sync-dot.saving{background:var(--orange);animation:pulse .8s infinite}
 .sync-dot.error{background:var(--red)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.app{display:flex;flex:1;overflow:hidden}
-.sidebar{width:230px;min-height:100%;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.app{display:flex;flex:1;min-height:0}
+.sidebar{width:230px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
 .sidebar-logo{padding:18px 16px 12px;font-size:15px;font-weight:600;color:var(--text);border-bottom:1px solid var(--border)}
 .nav-section{padding:14px 16px 4px;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em}
 .nav-item{display:flex;align-items:center;gap:8px;padding:7px 16px;cursor:pointer;font-size:13px;color:var(--text2);border-left:2px solid transparent;transition:all .1s;user-select:none}
@@ -100,9 +100,9 @@ tr:hover .del-btn{color:var(--text3)}
 .prog{height:3px;background:var(--surface3);border-radius:2px;overflow:hidden;margin-top:4px}
 .prog-fill{height:100%;border-radius:2px}
 .callout{background:var(--surface2);border-left:3px solid var(--vbp);border-radius:0 var(--radius) var(--radius) 0;padding:12px 16px;margin-bottom:24px;font-size:13px;color:var(--text2)}
-.loading-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:12px}
+.loading-overlay{position:fixed;inset:0;background:rgba(15,15,15,.92);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:16px}
 .loading-overlay.hidden{display:none}
-.spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+.spinner{width:40px;height:40px;border:3px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-text{color:var(--text2);font-size:14px}
 .toast{position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--green);padding:12px 18px;border-radius:var(--radius);font-size:13px;color:var(--text);opacity:0;transform:translateY(8px);transition:all .25s;pointer-events:none;z-index:9999}
@@ -114,8 +114,8 @@ tr:hover .del-btn{color:var(--text3)}
 
 <div class="sync-bar">
   <div class="sync-dot" id="sync-dot"></div>
-  <span id="sync-label">Conectando con la nube...</span>
-  <span style="margin-left:auto;cursor:pointer;color:var(--text3)" onclick="forceSave()" title="Guardar ahora">💾 Guardar ahora</span>
+  <span id="sync-label">Conectando con Firebase...</span>
+  <span style="margin-left:auto;cursor:pointer;color:var(--text3);font-size:12px" onclick="forceSave()">💾 Guardar ahora</span>
 </div>
 
 <div class="app">
@@ -150,7 +150,7 @@ tr:hover .del-btn{color:var(--text3)}
       <div class="page-icon">🏋️</div>
       <div class="page-title">Programa Online — VBP</div>
       <div class="page-sub">Ingresos del programa por mes.</div>
-      <div class="callout">El total de cada mes se suma como <strong>Programa Online: VBP</strong> en la sección de ingresos.</div>
+      <div class="callout">El total de cada mes se suma como <strong>Programa Online: VBP</strong> en la sección de ingresos de ese mes.</div>
       <div class="metrics" id="vbp-metrics"></div>
       <div id="vbp-months"></div>
     </div>
@@ -159,77 +159,43 @@ tr:hover .del-btn{color:var(--text3)}
 
 <div class="loading-overlay" id="loading">
   <div class="spinner"></div>
-  <div class="loading-text">Cargando tus datos...</div>
+  <div class="loading-text" id="loading-text">Conectando con Firebase...</div>
 </div>
 
 <div class="toast" id="toast"></div>
 
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDB2SiM1YMIVYJE4cI6GVowTQigYO-n1Uw",
+  authDomain: "finanzas2026-44d9c.firebaseapp.com",
+  projectId: "finanzas2026-44d9c",
+  storageBucket: "finanzas2026-44d9c.firebasestorage.app",
+  messagingSenderId: "182211400384",
+  appId: "1:182211400384:web:a8d03aa0e66c96fe8e5325"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+const REF = doc(db, 'finanzas', 'data');
+
+// expose to global
+window._fbSave = async (data) => {
+  await setDoc(REF, { payload: JSON.stringify(data) });
+};
+window._fbLoad = async () => {
+  const snap = await getDoc(REF);
+  if (!snap.exists()) return null;
+  return JSON.parse(snap.data().payload);
+};
+window._fbReady = true;
+window.dispatchEvent(new Event('fb-ready'));
+</script>
+
 <script>
-// ── JSONBIN CONFIG ────────────────────────────────────────────────────────
-const BIN_ID  = '6a43035bf5f4af5e29447d05';
-const API_KEY = '$2a$10$MMbJ9bxs1B7VoEH689OajuTIhKmo7sVnV.dwMaZrWLGWa5ODWWM6e';
-const BIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
-
-// ── SYNC STATE ────────────────────────────────────────────────────────────
-let saveTimer = null;
-let isSaving  = false;
-
-function setSyncStatus(status, msg){
-  const dot   = document.getElementById('sync-dot');
-  const label = document.getElementById('sync-label');
-  dot.className = 'sync-dot ' + status;
-  label.textContent = msg;
-}
-
-async function loadFromCloud(){
-  try{
-    const r = await fetch(BIN_URL+'/latest', {
-      headers:{'X-Master-Key': API_KEY, 'X-Bin-Meta': 'false'}
-    });
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const json = await r.json();
-    setSyncStatus('ok','Datos cargados desde la nube ✓');
-    return json.data ? json : {data: json};
-  }catch(e){
-    setSyncStatus('error','Error al cargar — usando datos locales');
-    return null;
-  }
-}
-
-async function saveToCloud(data){
-  if(isSaving) return;
-  isSaving = true;
-  setSyncStatus('saving','Guardando...');
-  try{
-    const r = await fetch(BIN_URL, {
-      method: 'PUT',
-      headers:{
-        'Content-Type':'application/json',
-        'X-Master-Key': API_KEY
-      },
-      body: JSON.stringify(data)
-    });
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    setSyncStatus('ok','Guardado en la nube ✓  · '+ new Date().toLocaleTimeString('es-AR'));
-  }catch(e){
-    setSyncStatus('error','Error al guardar — reintentando...');
-    setTimeout(()=>saveToCloud(data), 5000);
-  }finally{
-    isSaving = false;
-  }
-}
-
-function scheduleSave(){
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>saveToCloud(state), 1500);
-}
-
-function forceSave(){
-  clearTimeout(saveTimer);
-  saveToCloud(state);
-}
-
-// ── DATA ──────────────────────────────────────────────────────────────────
 const MESES=['JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
 const FIJOS_NAR=[
   {nombre:'MAX',monto:5800,debito:'22',cuotas:'—'},
@@ -256,26 +222,61 @@ const FIJOS_MP=[
   {nombre:'TELECENTRO',monto:35000,debito:'-',cuotas:'—'},
 ];
 
-let state = {};
-
-function initState(loaded){
-  const base = loaded || {};
-  MESES.forEach(m=>{
-    if(!base[m]) base[m]={naranja:FIJOS_NAR.map(f=>({...f})),mp:FIJOS_MP.map(f=>({...f})),efectivo:[],dni:[],metz:[],honorarios:[],inversiones:[],otros:[]};
-    ['naranja','mp','efectivo','dni','metz','honorarios','inversiones','otros'].forEach(k=>{if(!base[m][k])base[m][k]=[];});
-    ['naranja','mp'].forEach(sec=>{
-      base[m][sec].forEach(item=>{if(!item.debito)item.debito=item.fecha||'-';if(!item.cuotas)item.cuotas='—';});
-    });
-  });
-  if(!base._vbp) base._vbp={};
-  MESES.forEach(m=>{if(!base._vbp[m])base._vbp[m]=[];});
-  return base;
-}
+let state={};
+let saveTimer=null;
+let isSaving=false;
 
 const fmt=n=>'$'+Math.round(n||0).toLocaleString('es-AR');
 const cap=s=>s.charAt(0)+s.slice(1).toLowerCase();
 const sumArr=arr=>(arr||[]).reduce((s,r)=>s+(+r.monto||0),0);
 const deepCopy=o=>JSON.parse(JSON.stringify(o));
+
+function setSyncStatus(status,msg){
+  const dot=document.getElementById('sync-dot');
+  const label=document.getElementById('sync-label');
+  if(dot) dot.className='sync-dot '+status;
+  if(label) label.textContent=msg;
+}
+
+async function saveToCloud(data){
+  if(isSaving||!window._fbSave) return;
+  isSaving=true;
+  setSyncStatus('saving','Guardando...');
+  try{
+    await window._fbSave(data);
+    setSyncStatus('ok','Guardado en Firebase ✓ · '+new Date().toLocaleTimeString('es-AR'));
+  }catch(e){
+    console.error('save error:',e);
+    setSyncStatus('error','Error al guardar — reintentando...');
+    setTimeout(()=>{isSaving=false;saveToCloud(data);},6000);
+  }finally{
+    isSaving=false;
+  }
+}
+
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>saveToCloud(state),2000);
+}
+
+function forceSave(){
+  clearTimeout(saveTimer);
+  saveToCloud(state);
+}
+
+function initState(loaded){
+  const base=loaded||{};
+  MESES.forEach(m=>{
+    if(!base[m]) base[m]={naranja:FIJOS_NAR.map(f=>({...f})),mp:FIJOS_MP.map(f=>({...f})),efectivo:[],dni:[],metz:[],honorarios:[],inversiones:[],otros:[]};
+    ['naranja','mp','efectivo','dni','metz','honorarios','inversiones','otros'].forEach(k=>{if(!base[m][k])base[m][k]=[];});
+    ['naranja','mp'].forEach(sec=>{
+      base[m][sec].forEach(item=>{if(!item.debito)item.debito='-';if(!item.cuotas)item.cuotas='—';});
+    });
+  });
+  if(!base._vbp)base._vbp={};
+  MESES.forEach(m=>{if(!base._vbp[m])base._vbp[m]=[];});
+  return base;
+}
 
 function vbpTotal(m){return sumArr(state._vbp[m]);}
 function totG(m){const d=state[m];return sumArr(d.naranja)+sumArr(d.mp)+sumArr(d.efectivo)+sumArr(d.dni)+sumArr(d.metz);}
@@ -326,13 +327,13 @@ function executeCopy(fromMes,tipo){
 }
 
 function buildCopyBar(mes,tipo){
-  const otrosMeses=MESES.filter(m=>m!==mes);
-  let secs=[];
-  if(tipo==='gastos') secs=[{k:'naranja',l:'Naranja X'},{k:'mp',l:'MP'},{k:'efectivo',l:'Efectivo'},{k:'dni',l:'Cuenta DNI'},{k:'metz',l:'Adelantos METZ'}];
-  else secs=[{k:'honorarios',l:'Honorarios'},{k:'inversiones',l:'Inversiones'},{k:'otros',l:'Otros'}];
+  const otros=MESES.filter(m=>m!==mes);
+  let secs=tipo==='gastos'
+    ?[{k:'naranja',l:'Naranja X'},{k:'mp',l:'MP'},{k:'efectivo',l:'Efectivo'},{k:'dni',l:'Cuenta DNI'},{k:'metz',l:'Adelantos METZ'}]
+    :[{k:'honorarios',l:'Honorarios'},{k:'inversiones',l:'Inversiones'},{k:'otros',l:'Otros'}];
   const vbpChk=tipo==='ingresos'?`<label class="copy-chk"><input type="checkbox" id="chk-vbp-${mes}" checked> VBP</label>`:'';
   const chks=secs.map(s=>`<label class="copy-chk"><input type="checkbox" id="chk-${s.k}-${mes}" checked> ${s.l}</label>`).join('');
-  const opts=otrosMeses.map(m=>`<option value="${m}">${cap(m)}</option>`).join('');
+  const opts=otros.map(m=>`<option value="${m}">${cap(m)}</option>`).join('');
   const div=document.createElement('div');
   div.className='copy-bar';
   div.innerHTML=`<span>Copiar a:</span><select class="month-sel" id="dest-sel-${tipo}-${mes}">${opts}</select><div class="copy-chk-row">${chks}${vbpChk}</div><button class="btn btn-primary" onclick="executeCopy('${mes}','${tipo}')">Copiar mes</button>`;
@@ -344,7 +345,6 @@ function updateTotals(mes){
   const nar=sumArr(d.naranja),mp=sumArr(d.mp),efe=sumArr(d.efectivo),dni=sumArr(d.dni),metz=sumArr(d.metz);
   const hon=sumArr(d.honorarios),inv=sumArr(d.inversiones),otr=sumArr(d.otros),vbp=vbpTotal(mes);
   const tg=nar+mp+efe+dni+metz,ti=hon+inv+otr+vbp,sal=ti-tg;
-
   setEl('stot-naranja-'+mes,fmt(nar),'var(--naranja)');
   setEl('stot-mp-'+mes,fmt(mp),'var(--mp)');
   setEl('stot-efectivo-'+mes,fmt(efe),'var(--efe)');
@@ -353,7 +353,6 @@ function updateTotals(mes){
   setEl('stot-honorarios-'+mes,fmt(hon),'var(--accent)');
   setEl('stot-inversiones-'+mes,fmt(inv),'var(--orange)');
   setEl('stot-otros-'+mes,fmt(otr),'var(--text2)');
-
   const gmet=document.getElementById('gmet-'+mes);
   if(gmet) gmet.innerHTML=
     `<div class="metric"><div class="metric-label">Naranja X</div><div class="metric-value mv-orange">${fmt(nar)}</div></div>`+
@@ -362,14 +361,12 @@ function updateTotals(mes){
     `<div class="metric"><div class="metric-label">Cuenta DNI</div><div class="metric-value mv-pink">${fmt(dni)}</div></div>`+
     `<div class="metric"><div class="metric-label">Adelantos METZ</div><div class="metric-value mv-teal">${fmt(metz)}</div></div>`+
     `<div class="metric"><div class="metric-label">Total gastos</div><div class="metric-value mv-red">${fmt(tg)}</div></div>`;
-
   const imet=document.getElementById('imet-'+mes);
   if(imet) imet.innerHTML=
     `<div class="metric"><div class="metric-label">Honorarios</div><div class="metric-value mv-green">${fmt(hon)}</div></div>`+
     `<div class="metric"><div class="metric-label">Prog. Online VBP</div><div class="metric-value mv-vbp">${fmt(vbp)}</div></div>`+
     `<div class="metric"><div class="metric-label">Inversiones</div><div class="metric-value mv-orange">${fmt(inv)}</div></div>`+
     `<div class="metric"><div class="metric-label">Total ingresos</div><div class="metric-value mv-green">${fmt(ti)}</div></div>`;
-
   setEl('vbp-line-'+mes,fmt(vbp),'var(--vbp)');
   setEl('gsaldo-val-'+mes,fmt(sal),sal>=0?'var(--green)':'var(--red)');
   setEl('gtotal-val-'+mes,fmt(tg));
@@ -402,7 +399,7 @@ function buildRow(sec,mes,item,idx){
       `<td class="amt amt-dni"><input type="number" value="${item.monto||''}" placeholder="0" onchange="upd('dni','${mes}',${idx},'monto',this.value)"></td>`;
   }else if(sec==='metz'){
     c=`<td><input value="${item.fecha||''}" placeholder="dd/mm" onchange="upd('metz','${mes}',${idx},'fecha',this.value)"></td>`+
-      `<td><input value="${item.nombre||''}" placeholder="Descripción del adelanto" onchange="upd('metz','${mes}',${idx},'nombre',this.value)"></td>`+
+      `<td><input value="${item.nombre||''}" placeholder="Descripción" onchange="upd('metz','${mes}',${idx},'nombre',this.value)"></td>`+
       `<td><select style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px;border-radius:4px;padding:3px 8px;font-family:inherit" onchange="upd('metz','${mes}',${idx},'medio',this.value)"><option value="efectivo"${(item.medio||'efectivo')==='efectivo'?' selected':''}>Efectivo</option><option value="transferencia"${item.medio==='transferencia'?' selected':''}>Transferencia</option></select></td>`+
       `<td class="amt amt-metz"><input type="number" value="${item.monto||''}" placeholder="0" onchange="upd('metz','${mes}',${idx},'monto',this.value)"></td>`;
   }else if(sec==='honorarios'){
@@ -433,15 +430,13 @@ function renderSec(sec,mes){
 function upd(sec,mes,idx,field,val){
   if(!state[mes][sec])return;
   state[mes][sec][idx][field]=field==='monto'?(parseFloat(val)||0):val;
-  scheduleSave();
-  updateTotals(mes);
+  scheduleSave();updateTotals(mes);
 }
 
 function delRow(sec,mes,idx){
   if(!state[mes][sec])return;
   state[mes][sec].splice(idx,1);
-  scheduleSave();
-  renderSec(sec,mes);
+  scheduleSave();renderSec(sec,mes);
 }
 
 function addRow(sec,mes){
@@ -451,8 +446,7 @@ function addRow(sec,mes){
   if(sec==='efectivo')item.cat='';
   if(sec==='metz')item.medio='efectivo';
   state[mes][sec].push(item);
-  scheduleSave();
-  renderSec(sec,mes);
+  scheduleSave();renderSec(sec,mes);
   setTimeout(()=>{
     const tbody=document.getElementById('tb-'+sec+'-'+mes);
     if(tbody&&tbody.lastElementChild){const inp=tbody.lastElementChild.querySelector('input');if(inp)inp.focus();}
@@ -499,7 +493,7 @@ function buildGastosPage(mes){
   pg.appendChild(buildCopyBar(mes,'gastos'));
   pg.appendChild(makeSec('naranja',mes,'tag-nar','Naranja X',[{label:'Servicio / Concepto',w:'38%'},{label:'Débito día',w:'12%'},{label:'Cuotas',w:'12%'},{label:'Monto',w:'28%'}]));
   pg.appendChild(makeSec('mp',mes,'tag-mp','Mercado Pago',[{label:'Servicio / Concepto',w:'38%'},{label:'Débito día',w:'12%'},{label:'Cuotas',w:'12%'},{label:'Monto',w:'28%'}]));
-  pg.appendChild(makeSec('dni',mes,'tag-dni','Cuenta DNI',[{label:'Fecha',w:'15%'},{label:'Concepto / Descripción',w:'55%'},{label:'Monto',w:'20%'}],'Gastos debitados desde tu Cuenta DNI'));
+  pg.appendChild(makeSec('dni',mes,'tag-dni','Cuenta DNI',[{label:'Fecha',w:'15%'},{label:'Concepto',w:'55%'},{label:'Monto',w:'20%'}],'Gastos debitados desde tu Cuenta DNI'));
   pg.appendChild(makeSec('efectivo',mes,'tag-efe','Efectivo',[{label:'Fecha',w:'14%'},{label:'Descripción',w:'36%'},{label:'Categoría',w:'26%'},{label:'Monto',w:'14%'}]));
   pg.appendChild(makeSec('metz',mes,'tag-metz','Adelantos METZ',[{label:'Fecha',w:'14%'},{label:'Descripción',w:'34%'},{label:'Medio',w:'20%'},{label:'Monto',w:'22%'}],'Adelantos de sueldo recibidos'));
   document.getElementById('main-content').appendChild(pg);
@@ -658,23 +652,42 @@ function buildUI(){
   renderResumen();
 }
 
-// ── INIT — carga desde JSONBin primero ────────────────────────────────────
-(async()=>{
-  buildUI();
-  const cloud = await loadFromCloud();
-  if(cloud){
-    state = initState(cloud);
+// Esperar a que Firebase esté listo
+buildUI();
+
+async function initApp(){
+  document.getElementById('loading-text').textContent='Cargando tus datos...';
+  try{
+    const cloud=await window._fbLoad();
+    state=initState(cloud||{});
     MESES.forEach(mes=>{
       ['naranja','mp','dni','efectivo','metz'].forEach(s=>renderSec(s,mes));
       ['honorarios','inversiones','otros'].forEach(s=>renderSec(s,mes));
       renderVBPSec(mes);
     });
     renderResumen();
-  } else {
-    state = initState({});
+    setSyncStatus('ok','Datos cargados ✓');
+  }catch(e){
+    console.error('initApp error:',e);
+    state=initState({});
+    setSyncStatus('error','Error al cargar: '+e.message);
   }
   document.getElementById('loading').classList.add('hidden');
-})();
+}
+
+if(window._fbReady){
+  initApp();
+}else{
+  window.addEventListener('fb-ready',initApp,{once:true});
+  // Fallback timeout
+  setTimeout(()=>{
+    if(!window._fbReady){
+      state=initState({});
+      document.getElementById('loading').classList.add('hidden');
+      setSyncStatus('error','Firebase no disponible');
+    }
+  },10000);
+}
 </script>
 </body>
 </html>
