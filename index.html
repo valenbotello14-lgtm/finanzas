@@ -652,24 +652,26 @@ function buildUI(){
   renderResumen();
 }
 
-// Esperar a que Firebase esté listo
+// IMPORTANTE: poblar state con valores por defecto ANTES de construir la UI
+state = initState({});
 buildUI();
 
 async function initApp(){
   document.getElementById('loading-text').textContent='Cargando tus datos...';
   try{
     const cloud=await window._fbLoad();
-    state=initState(cloud||{});
-    MESES.forEach(mes=>{
-      ['naranja','mp','dni','efectivo','metz'].forEach(s=>renderSec(s,mes));
-      ['honorarios','inversiones','otros'].forEach(s=>renderSec(s,mes));
-      renderVBPSec(mes);
-    });
-    renderResumen();
+    if(cloud){
+      state=initState(cloud);
+      MESES.forEach(mes=>{
+        ['naranja','mp','dni','efectivo','metz'].forEach(s=>renderSec(s,mes));
+        ['honorarios','inversiones','otros'].forEach(s=>renderSec(s,mes));
+        renderVBPSec(mes);
+      });
+      renderResumen();
+    }
     setSyncStatus('ok','Datos cargados ✓');
   }catch(e){
     console.error('initApp error:',e);
-    state=initState({});
     setSyncStatus('error','Error al cargar: '+e.message);
   }
   document.getElementById('loading').classList.add('hidden');
@@ -679,12 +681,10 @@ if(window._fbReady){
   initApp();
 }else{
   window.addEventListener('fb-ready',initApp,{once:true});
-  // Fallback timeout
   setTimeout(()=>{
     if(!window._fbReady){
-      state=initState({});
       document.getElementById('loading').classList.add('hidden');
-      setSyncStatus('error','Firebase no disponible');
+      setSyncStatus('error','Firebase no disponible — trabajando localmente');
     }
   },10000);
 }
