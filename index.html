@@ -183,13 +183,23 @@ const db  = getFirestore(app);
 const REF = doc(db, 'finanzas', 'data');
 
 // expose to global
-window._fbSave = async (data) => {
-  await setDoc(REF, { payload: JSON.stringify(data) });
+// Guarda SOLO los campos indicados (p.ej. un mes puntual, o un mes de _vbp),
+// con merge:true para no pisar el resto del documento en Firestore.
+window._fbSaveFields = async (fields) => {
+  await setDoc(REF, fields, { merge: true });
 };
+// Formato viejo: todo el estado en un único string JSON bajo "payload".
+// Formato nuevo: cada mes (y _vbp) es su propio campo del documento.
 window._fbLoad = async () => {
   const snap = await getDoc(REF);
-  if (!snap.exists()) return null;
-  return JSON.parse(snap.data().payload);
+  if (!snap.exists()) return { data: null, legacy: false };
+  const raw = snap.data();
+  if (raw.payload) return { data: JSON.parse(raw.payload), legacy: true };
+  return { data: raw, legacy: false };
+};
+// Migración única: reescribe el doc viejo (payload) al formato por campos.
+window._fbMigrate = async (state) => {
+  await setDoc(REF, state);
 };
 window._fbReady = true;
 window.dispatchEvent(new Event('fb-ready'));
@@ -225,6 +235,11 @@ const FIJOS_MP=[
 let state={};
 let saveTimer=null;
 let isSaving=false;
+let cloudLoaded=false;      // no se guarda nada en Firebase hasta confirmar la carga inicial
+let dirtyMeses=new Set();   // meses con cambios pendientes de guardar
+let dirtyVbp=new Set();     // meses de VBP con cambios pendientes
+let retryTimer=null;
+const BACKUP_KEY='finanzas_backup_v1';
 
 const fmt=n=>'$'+Math.round(n||0).toLocaleString('es-AR');
 const cap=s=>s.charAt(0)+s.slice(1).toLowerCase();
@@ -238,30 +253,73 @@ function setSyncStatus(status,msg){
   if(label) label.textContent=msg;
 }
 
-async function saveToCloud(data){
-  if(isSaving||!window._fbSave) return;
-  isSaving=true;
-  setSyncStatus('saving','Guardando...');
+function backupLocal(){
   try{
-    await window._fbSave(data);
-    setSyncStatus('ok','Guardado en Firebase ✓ · '+new Date().toLocaleTimeString('es-AR'));
-  }catch(e){
-    console.error('save error:',e);
-    setSyncStatus('error','Error al guardar — reintentando...');
-    setTimeout(()=>{isSaving=false;saveToCloud(data);},6000);
-  }finally{
-    isSaving=false;
-  }
+    localStorage.setItem(BACKUP_KEY,JSON.stringify({state,ts:Date.now()}));
+  }catch(e){/* localStorage no disponible: no bloquea el resto de la app */}
+}
+
+function loadLocalBackup(){
+  try{
+    const raw=localStorage.getItem(BACKUP_KEY);
+    return raw?JSON.parse(raw):null;
+  }catch(e){return null;}
+}
+
+function markDirtyMes(mes){
+  dirtyMeses.add(mes);
+  backupLocal();
+  scheduleSave();
+}
+
+function markDirtyVbp(mes){
+  dirtyVbp.add(mes);
+  backupLocal();
+  scheduleSave();
 }
 
 function scheduleSave(){
   clearTimeout(saveTimer);
-  saveTimer=setTimeout(()=>saveToCloud(state),2000);
+  saveTimer=setTimeout(flushSave,2000);
 }
 
 function forceSave(){
   clearTimeout(saveTimer);
-  saveToCloud(state);
+  flushSave();
+}
+
+async function flushSave(){
+  if(dirtyMeses.size===0&&dirtyVbp.size===0) return;
+  if(!cloudLoaded){
+    // Todavía no confirmamos qué hay en la nube: no arriesgamos a pisar datos.
+    // Los cambios ya están en memoria y respaldados en localStorage; se
+    // guardarán en Firebase apenas termine la carga (ver tryLoadCloud).
+    setSyncStatus('error','Sin conexión con Firebase — guardado local, reintentando...');
+    return;
+  }
+  if(isSaving) return;
+  const meses=new Set(dirtyMeses);
+  const vbps=new Set(dirtyVbp);
+  const fields={};
+  meses.forEach(m=>fields[m]=state[m]);
+  if(vbps.size){
+    fields._vbp={};
+    vbps.forEach(m=>fields._vbp[m]=state._vbp[m]);
+  }
+  isSaving=true;
+  setSyncStatus('saving','Guardando...');
+  try{
+    await window._fbSaveFields(fields);
+    meses.forEach(m=>dirtyMeses.delete(m));
+    vbps.forEach(m=>dirtyVbp.delete(m));
+    setSyncStatus('ok','Guardado en Firebase ✓ · '+new Date().toLocaleTimeString('es-AR'));
+  }catch(e){
+    console.error('save error:',e);
+    setSyncStatus('error','Error al guardar — reintentando...');
+    setTimeout(flushSave,6000);
+  }finally{
+    isSaving=false;
+  }
 }
 
 function initState(loaded){
@@ -315,11 +373,13 @@ function executeCopy(fromMes,tipo){
     const chk=document.getElementById('chk-'+s+'-'+fromMes);
     if(chk&&chk.checked) state[destMes][s]=deepCopy(state[fromMes][s]);
   });
+  let copiedVbp=false;
   if(tipo==='ingresos'){
     const chkV=document.getElementById('chk-vbp-'+fromMes);
-    if(chkV&&chkV.checked) state._vbp[destMes]=deepCopy(state._vbp[fromMes]);
+    if(chkV&&chkV.checked){ state._vbp[destMes]=deepCopy(state._vbp[fromMes]); copiedVbp=true; }
   }
-  scheduleSave();
+  markDirtyMes(destMes);
+  if(copiedVbp) markDirtyVbp(destMes);
   if(tipo==='gastos'){['naranja','mp','efectivo','dni','metz'].forEach(s=>renderSec(s,destMes));}
   else{['honorarios','inversiones','otros'].forEach(s=>renderSec(s,destMes));renderVBPSec(destMes);}
   updateTotals(destMes);
@@ -430,13 +490,13 @@ function renderSec(sec,mes){
 function upd(sec,mes,idx,field,val){
   if(!state[mes][sec])return;
   state[mes][sec][idx][field]=field==='monto'?(parseFloat(val)||0):val;
-  scheduleSave();updateTotals(mes);
+  markDirtyMes(mes);updateTotals(mes);
 }
 
 function delRow(sec,mes,idx){
   if(!state[mes][sec])return;
   state[mes][sec].splice(idx,1);
-  scheduleSave();renderSec(sec,mes);
+  markDirtyMes(mes);renderSec(sec,mes);
 }
 
 function addRow(sec,mes){
@@ -446,7 +506,7 @@ function addRow(sec,mes){
   if(sec==='efectivo')item.cat='';
   if(sec==='metz')item.medio='efectivo';
   state[mes][sec].push(item);
-  scheduleSave();renderSec(sec,mes);
+  markDirtyMes(mes);renderSec(sec,mes);
   setTimeout(()=>{
     const tbody=document.getElementById('tb-'+sec+'-'+mes);
     if(tbody&&tbody.lastElementChild){const inp=tbody.lastElementChild.querySelector('input');if(inp)inp.focus();}
@@ -555,15 +615,15 @@ function renderVBPSec(mes){
 
 function updVBP(mes,idx,field,val){
   state._vbp[mes][idx][field]=field==='monto'?(parseFloat(val)||0):val;
-  scheduleSave();
+  markDirtyVbp(mes);
   setEl('stot-vbpsec-'+mes,fmt(vbpTotal(mes)),'var(--vbp)');
   setEl('vbp-line-'+mes,fmt(vbpTotal(mes)),'var(--vbp)');
   updateTotals(mes);renderVBPMetrics();
 }
-function delVBP(mes,idx){state._vbp[mes].splice(idx,1);scheduleSave();renderVBPSec(mes);}
+function delVBP(mes,idx){state._vbp[mes].splice(idx,1);markDirtyVbp(mes);renderVBPSec(mes);}
 function addVBPRow(mes){
   state._vbp[mes].push({nombre:'',monto:0,fecha:''});
-  scheduleSave();renderVBPSec(mes);
+  markDirtyVbp(mes);renderVBPSec(mes);
   setTimeout(()=>{
     const tbody=document.getElementById('tb-vbp-'+mes);
     if(tbody&&tbody.lastElementChild){const inp=tbody.lastElementChild.querySelector('input');if(inp)inp.focus();}
@@ -656,24 +716,53 @@ function buildUI(){
 state = initState({});
 buildUI();
 
+// Aplica datos ya sea de la nube o de un respaldo local. Los meses que el
+// usuario ya editó (dirtyMeses/dirtyVbp) NO se pisan: se asume que la edición
+// en pantalla es más nueva que lo que se acaba de leer.
+function applyLoadedData(data){
+  if(!data) return;
+  const loaded=initState(data);
+  MESES.forEach(mes=>{
+    if(!dirtyMeses.has(mes)) state[mes]=loaded[mes];
+    if(!dirtyVbp.has(mes)) state._vbp[mes]=loaded._vbp[mes];
+  });
+  MESES.forEach(mes=>{
+    ['naranja','mp','dni','efectivo','metz'].forEach(s=>renderSec(s,mes));
+    ['honorarios','inversiones','otros'].forEach(s=>renderSec(s,mes));
+    renderVBPSec(mes);
+  });
+  renderResumen();
+}
+
+async function tryLoadCloud(isFirstAttempt){
+  try{
+    const result=await window._fbLoad();
+    applyLoadedData(result.data);
+    cloudLoaded=true;
+    if(retryTimer){clearInterval(retryTimer);retryTimer=null;}
+    setSyncStatus('ok','Datos cargados ✓');
+    if(result.legacy){
+      window._fbMigrate(state).catch(e=>console.error('migrate error:',e));
+    }
+    flushSave(); // por si hubo ediciones mientras se cargaba o mientras no había conexión
+  }catch(e){
+    console.error('load error:',e);
+    if(isFirstAttempt){
+      const backup=loadLocalBackup();
+      if(backup&&backup.state){
+        applyLoadedData(backup.state);
+        setSyncStatus('error','Sin conexión — mostrando copia local del '+new Date(backup.ts).toLocaleString('es-AR'));
+      }else{
+        setSyncStatus('error','Sin conexión con Firebase — reintentando...');
+      }
+    }
+    if(!retryTimer) retryTimer=setInterval(()=>tryLoadCloud(false),8000);
+  }
+}
+
 async function initApp(){
   document.getElementById('loading-text').textContent='Cargando tus datos...';
-  try{
-    const cloud=await window._fbLoad();
-    if(cloud){
-      state=initState(cloud);
-      MESES.forEach(mes=>{
-        ['naranja','mp','dni','efectivo','metz'].forEach(s=>renderSec(s,mes));
-        ['honorarios','inversiones','otros'].forEach(s=>renderSec(s,mes));
-        renderVBPSec(mes);
-      });
-      renderResumen();
-    }
-    setSyncStatus('ok','Datos cargados ✓');
-  }catch(e){
-    console.error('initApp error:',e);
-    setSyncStatus('error','Error al cargar: '+e.message);
-  }
+  await tryLoadCloud(true);
   document.getElementById('loading').classList.add('hidden');
 }
 
@@ -684,7 +773,13 @@ if(window._fbReady){
   setTimeout(()=>{
     if(!window._fbReady){
       document.getElementById('loading').classList.add('hidden');
-      setSyncStatus('error','Firebase no disponible — trabajando localmente');
+      const backup=loadLocalBackup();
+      if(backup&&backup.state){
+        applyLoadedData(backup.state);
+        setSyncStatus('error','Firebase no disponible — mostrando copia local del '+new Date(backup.ts).toLocaleString('es-AR'));
+      }else{
+        setSyncStatus('error','Firebase no disponible — sin copia local');
+      }
     }
   },10000);
 }
